@@ -23,7 +23,8 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "default_server_endpoint = ros_tcp_endpoint.default_server_endpoint:main"
+            "default_server_endpoint = ros_tcp_endpoint.default_server_endpoint:main",
+            "gate_navigator = ros_tcp_endpoint.gate_navigator:main" 
         ]
     },
 )
