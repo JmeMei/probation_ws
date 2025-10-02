@@ -24,7 +24,8 @@ setup(
     entry_points={
         "console_scripts": [
             "default_server_endpoint = ros_tcp_endpoint.default_server_endpoint:main",
-            "gate_navigator = ros_tcp_endpoint.gate_navigator:main" 
+            "gate_navigator = ros_tcp_endpoint.gate_navigator:main" ,
+            "to_guided_mode = ros_tcp_endpoint.to_guided_mode:main",
         ]
     },
 )
