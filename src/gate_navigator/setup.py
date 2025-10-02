@@ -20,7 +20,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            "gate_navigator = gate_navigator.gate_navigator:main"
+            "gate_navigator = gate_navigator.gate_navigator:main",
+            "mode_client = gate_navigator.mode_client:main"
         ],
     },
 )
