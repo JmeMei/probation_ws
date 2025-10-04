@@ -17,7 +17,7 @@ class GateNavigatorNode(Node):
         self.sub_boxes = self.create_subscription(
             BoundingBoxArray,
             '/main_camera/detection/bounding_boxes',
-            self.callback_bounding_boxes,
+            self.callback_gate_navigation,
             10
         )
         self.sub_depth = self.create_subscription(
@@ -44,7 +44,7 @@ class GateNavigatorNode(Node):
         self.current_depth = msg.data
         self.depth_received = True
         
-    def callback_bounding_boxes(self, msg: BoundingBoxArray):
+    def callback_gate_navigation(self, msg: BoundingBoxArray):
         if self.passed_through_the_gate:
             return
 
