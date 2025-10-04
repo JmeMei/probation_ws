@@ -46,6 +46,7 @@ class GateNavigatorNode(Node):
         # Depth setpoint publisher timer (5 Hz). Required to keep OFFBOARD/position control active.
         
         self.rotation_timer = self.create_timer(0.1, self._rotation_tick)
+        self.passed_through_the_gate = False
 
 
     ########################## CALLBACKS ##########################    
@@ -60,8 +61,11 @@ class GateNavigatorNode(Node):
         self.depth_received = True
         
     def callback_bounding_boxes(self, msg: BoundingBoxArray):
+        if self.passed_through_the_gate:
+            return
+
         if not self.depth_target_achieved:
-            # Don’t start gate navigation until depth is stable
+            # Don't start gate navigation until depth is stable
             return
 
         # --- Search behavior: if no gate detected ---
@@ -78,35 +82,42 @@ class GateNavigatorNode(Node):
 
         # --- Gate detected: extract normalized values ---
         x = gate_box.x  # [0,1], center position of gate in image (horizontal)
-        y = gate_box.y  # [0,1], vertical center (we don’t use this since depth is constant)
+        y = gate_box.y  # [0,1], vertical center (we don't use this since depth is constant)
         w = gate_box.w
         h = gate_box.h
-
+        area = w * h
+        
         # --- Compute horizontal error relative to image center ---
-        error_z = x - 0.5   # >0 → gate is right, <0 → gate is left
+        error_x = x - 0.5   # >0 → gate is right, <0 → gate is left
 
         # --- Simple proportional controller for left-right alignment ---
-        k_z = 0.3           # tuning gain for sideways correction
-        forward_speed = 0.3 # constant forward motion (m/s)
+        k_side = 0.3           # tuning gain for sideways correction
+        forward_speed = 0.3    # constant forward motion (m/s)
 
-        linear_z = -k_z * error_z   # move left/right to center gate
+        # Calculate sideways motion (left/right)
+        # If gate is to right (error_x > 0), need to move left (positive y in ENU)
+        # If gate is to left (error_x < 0), need to move right (negative y in ENU)
+        side_correction = -k_side * error_x
 
         # --- Stopping condition: if gate fills enough of the view ---
-        if w > 0.5 and h > 0.5:
+        if area > 0.40:
             self.get_logger().info("Gate is close (large in view). Stopping movement.")
-            self.move_forward(speed=0.3)
+            while(gate_box):
+                self.move_forward(speed=0.3)
+            self.stop_movement()
+            self.passed_through_the_gate = True
             return
 
         # --- Publish movement command: forward + sideways correction ---
         self.publish_velocity_command(
             linear_x=forward_speed,
-            linear_z=linear_z,
-            linear_y=0.0   # keep depth fixed
+            linear_y=side_correction,  # FIXED: Use linear_y for horizontal/sideways motion
+            linear_z=0.0  # Keep depth fixed
         )
 
         self.get_logger().info(
             f"Gate detected at (x={x:.2f}, y={y:.2f}), size=({w:.2f},{h:.2f}), "
-            f"error_x={error_z:.2f}, cmd: fwd={forward_speed:.2f}, y={linear_z:.2f}"
+            f"error_x={error_x:.2f}, cmd: fwd={forward_speed:.2f}, side={side_correction:.2f}"
         )
 
 
