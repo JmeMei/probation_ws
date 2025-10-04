@@ -32,7 +32,8 @@ class GateNavigatorNode(Node):
         # Variables
         self.target_depth = -1.5804749727249146 #depth is constant
         self.depth_target_achieved = False
-        self.current_depth = 0.0  # initialize so logging doesn't fail
+        self.current_depth = None          # will be set after first rel_alt message
+        self.depth_received = False
 
         
         self.depth_setpoint_timer = self.create_timer(0.2, self.move_to_target_depth)
@@ -50,13 +51,9 @@ class GateNavigatorNode(Node):
         pass
     
     def depth_callback(self, msg):
+        # rel_alt published by MAVROS (Float64). Save it for control logic.
         self.current_depth = msg.data
-        if (not self.depth_target_achieved and
-                self.current_depth <= self.target_depth + 0.1):
-            self.depth_target_achieved = True
-            self.get_logger().info('Target depth reached. Stopping depth setpoints.')
-            if self.depth_setpoint_timer:
-                self.depth_setpoint_timer.cancel()
+        self.depth_received = True
 
     ############# TO MOVE COMMAND #############
     def publish_velocity_command(self, linear_x=0.0, linear_y=0.0, linear_z=0.0, 
@@ -98,24 +95,36 @@ class GateNavigatorNode(Node):
 
     def sink(self):
         """Sink the vehicle by publishing a downward velocity command."""
-        self.publish_velocity_command(linear_z=-0.2)  # Negative for downward movement
-        self.get_logger().info('Published sink command with downward velocity of 0.2 m/s.')
+        self.publish_velocity_command(linear_z=-0.5)  # Negative for downward movement
+        self.get_logger().info('Published sink command with downward velocity of 0.5 m/s.')
 
     ############# END OFTO MOVE COMMAND #############
 
     # Move to target depth
     def move_to_target_depth(self):
+        # Called periodically by self.depth_setpoint_timer
         if self.depth_target_achieved:
             return
-        pose = PoseStamped()
-        pose.pose.position.x = 0.0
-        pose.pose.position.y = 0.0
-        pose.pose.position.z = self.target_depth  # adjust if ENU vs NED mismatch
-        self.pos_pub.publish(pose)
-        self.get_logger().info(
-            f"Depth setpoint: {self.target_depth:.2f} (current {self.current_depth:.2f})")
-        
+        if not self.depth_received:
+            # Haven't received rel_alt yet
+            return
 
+        # Decide based on current_depth vs target_depth
+        # User request: when current_depth <= target_depth -> stop, else keep sinking
+        if self.current_depth <= self.target_depth:
+            self.depth_target_achieved = True
+            self.stop_movement()
+            self.get_logger().info(
+                f"Target depth reached: current={self.current_depth:.3f} target={self.target_depth:.3f}. Stopping.")
+            if self.depth_setpoint_timer:
+                self.depth_setpoint_timer.cancel()
+        else:
+            # Continue descending
+            self.sink()
+            self.get_logger().info(
+                f"Sinking: current={self.current_depth:.3f} > target={self.target_depth:.3f}")
+        
+        
     def _rotation_tick(self):
         # call only if you actually want continuous rotation; comment out if not needed
         # self.rotate_clockwise()
