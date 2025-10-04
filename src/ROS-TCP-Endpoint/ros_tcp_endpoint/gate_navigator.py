@@ -13,49 +13,143 @@ class GateNavigatorNode(Node):
 
         # publishers
         self.cmd_pub = self.create_publisher(Twist, '/mavros/setpoint_velocity/cmd_vel_unstamped', 10)
+        # /mavros/setpoint_position/local:
+        # Publish PoseStamped (ENU frame: x forward, y left, z up). Must stream (>2 Hz) while in OFFBOARD/GUIDED.
+        # MAVROS forwards it as a local position target; one-shot publish is ignored by FCU position controllers.
         self.pos_pub = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local', 10)
 
         # Subscribers
         self.sub_boxes = self.create_subscription(
             BoundingBoxArray,
             '/main_camera/detection/bounding_boxes',
-            self.vision_callback,
+            self.callback_bounding_boxes,
             10
         )
         self.sub_depth = self.create_subscription(
             Float64,
-            '/mavros/global_position/rel_alt',
-            self.depth_callback,
+            '/mavros/global_position/rel_alt', 
+            self.callback_depth,
             10
         )
 
-        # Variables
+        # Depth Variables
         self.target_depth = -1.5804749727249146 #depth is constant
         self.depth_target_achieved = False
         self.current_depth = None          # will be set after first rel_alt message
         self.depth_received = False
 
-        
         self.depth_setpoint_timer = self.create_timer(0.2, self.move_to_target_depth)
 
+        # Vision
         # FIX: do not overwrite rotate_clockwise function
         # self.rotate_clockwise = self.create_timer(0.1, self.rotate_clockwise)
         # Depth setpoint publisher timer (5 Hz). Required to keep OFFBOARD/position control active.
+        
         self.rotation_timer = self.create_timer(0.1, self._rotation_tick)
 
-        
 
+    ########################## CALLBACKS ##########################    
 
-    def vision_callback(self, msg):
+    def callback_bounding_boxes(self, msg):
         # TODO: Implement vision processing
         pass
     
-    def depth_callback(self, msg):
+    def callback_depth(self, msg):
         # rel_alt published by MAVROS (Float64). Save it for control logic.
         self.current_depth = msg.data
         self.depth_received = True
+    
+    def callback_bounding_boxes(self, msg: BoundingBoxArray):
+        if not self.depth_target_achieved:
+            return
 
-    ############# TO MOVE COMMAND #############
+        while not msg.bounding_boxes:
+            self.get_logger().info("No bounding boxes detected. Rotating clockwise")
+            self.rotate_clockwise()
+            return
+
+        # Take the first bounding box with label "gate"
+        gate_box = None
+        for box in msg.bounding_boxes:
+            if box.label_name == "gate" and box.conf > 0.5:  # filter by confidence
+                gate_box = box
+                break
+        
+        if gate_box is None:
+            self.get_logger().info("No gate detected.")
+            return
+
+        # Center of bounding box (normalized [0,1])
+        x = gate_box.x
+        y = gate_box.y
+        w = gate_box.w
+        h = gate_box.h
+
+        # Compute errors relative to image center (0.5, 0.5)
+        error_x = x - 0.5   # >0 → gate is to the right
+        error_y = y - 0.5   # >0 → gate is below
+
+        # Simple proportional controller
+        k_y = 0.5   # gain for horizontal correction
+        k_z = 0.5   # gain for vertical correction
+        forward_speed = 0.3  # constant forward motion (m/s)
+
+        linear_y = -k_y * error_x   # negative: if gate is right, move right
+        linear_z = -k_z * error_y   # negative: if gate is below, move down
+
+        # Optional stopping condition: if gate is big enough in frame
+        if w > 0.5 and h > 0.5:
+            self.get_logger().info("Gate reached (large in view), stopping.")
+            self.stop_movement()
+            return
+
+        # Publish velocity command
+        self.publish_velocity_command(
+            linear_x=forward_speed,  # always move forward
+            linear_y=linear_y,
+            linear_z=linear_z
+        )
+
+        self.get_logger().info(
+            f"Gate detected at (x={x:.2f}, y={y:.2f}), size=({w:.2f},{h:.2f}), "
+            f"errors: (ex={error_x:.2f}, ey={error_y:.2f}), "
+            f"cmd: fwd={forward_speed:.2f}, y={linear_y:.2f}, z={linear_z:.2f}"
+        )
+
+
+    ########################## END OF CALLBACKS ########################## 
+    def move_to_target_depth(self):
+        # Called periodically by self.depth_setpoint_timer
+        if self.depth_target_achieved:
+            return
+        if not self.depth_received:
+            # Haven't received rel_alt yet
+            return
+
+        # Decide based on current_depth vs target_depth
+        # User request: when current_depth <= target_depth -> stop, else keep sinking
+        # In here, I have received the depth AND I have the current depth, so I can compare
+        if self.current_depth <= self.target_depth:
+            self.depth_target_achieved = True
+            self.stop_movement()
+            self.get_logger().info(
+                f"Target depth reached: current={self.current_depth:.3f} target={self.target_depth:.3f}. Stopping.")
+            if self.depth_setpoint_timer:
+                self.depth_setpoint_timer.cancel() # stop this timer
+        else:
+            # Continue descending
+            self.sink()
+            self.get_logger().info(
+                f"Sinking: current={self.current_depth:.3f} > target={self.target_depth:.3f}")
+
+    def _rotation_tick(self):
+        # call only if you actually want continuous rotation; comment out if not needed
+        # self.rotate_clockwise()
+        if not self.depth_target_achieved:
+          return  
+
+    
+    ########################## TO MOVE COMMANDS ##########################
     def publish_velocity_command(self, linear_x=0.0, linear_y=0.0, linear_z=0.0, 
                                 angular_x=0.0, angular_y=0.0, angular_z=0.0):
         """
@@ -80,7 +174,7 @@ class GateNavigatorNode(Node):
         self.cmd_pub.publish(twist_msg)
         self.get_logger().info(f'Published velocity command: linear=({linear_x}, {linear_y}, {linear_z}), angular=({angular_x}, {angular_y}, {angular_z})')
     
-    def rotate_clockwise(self, yaw_rate=1.0):
+    def rotate_clockwise(self, yaw_rate=0.3):
         """
         Rotate the drone clockwise at specified yaw rate
         Args:
@@ -98,38 +192,7 @@ class GateNavigatorNode(Node):
         self.publish_velocity_command(linear_z=-0.5)  # Negative for downward movement
         self.get_logger().info('Published sink command with downward velocity of 0.5 m/s.')
 
-    ############# END OFTO MOVE COMMAND #############
-
-    # Move to target depth
-    def move_to_target_depth(self):
-        # Called periodically by self.depth_setpoint_timer
-        if self.depth_target_achieved:
-            return
-        if not self.depth_received:
-            # Haven't received rel_alt yet
-            return
-
-        # Decide based on current_depth vs target_depth
-        # User request: when current_depth <= target_depth -> stop, else keep sinking
-        if self.current_depth <= self.target_depth:
-            self.depth_target_achieved = True
-            self.stop_movement()
-            self.get_logger().info(
-                f"Target depth reached: current={self.current_depth:.3f} target={self.target_depth:.3f}. Stopping.")
-            if self.depth_setpoint_timer:
-                self.depth_setpoint_timer.cancel()
-        else:
-            # Continue descending
-            self.sink()
-            self.get_logger().info(
-                f"Sinking: current={self.current_depth:.3f} > target={self.target_depth:.3f}")
-        
-        
-    def _rotation_tick(self):
-        # call only if you actually want continuous rotation; comment out if not needed
-        # self.rotate_clockwise()
-        if not self.depth_target_achieved:
-          return
+    ########################## END OF TO MOVE COMMAND ##########################
 
 def main(args=None):
     rclpy.init(args=args)
