@@ -58,63 +58,122 @@ class GateNavigatorNode(Node):
         # rel_alt published by MAVROS (Float64). Save it for control logic.
         self.current_depth = msg.data
         self.depth_received = True
-    
+        
     def callback_bounding_boxes(self, msg: BoundingBoxArray):
         if not self.depth_target_achieved:
+            # Don’t start gate navigation until depth is stable
             return
 
-        while not msg.bounding_boxes:
-            self.get_logger().info("No bounding boxes detected. Rotating clockwise")
+        # --- Search behavior: if no gate detected ---
+        gate_box = None
+        for box in msg.bounding_boxes:
+            if box.label_name == "gate" and box.conf > 0.5:
+                gate_box = box
+                break
+
+        if gate_box is None:
+            self.get_logger().info("No gate detected. Rotating clockwise to search...")
             self.rotate_clockwise()
             return
 
-        # Take the first bounding box with label "gate"
-        gate_box = None
-        for box in msg.bounding_boxes:
-            if box.label_name == "gate" and box.conf > 0.5:  # filter by confidence
-                gate_box = box
-                break
-        
-        if gate_box is None:
-            self.get_logger().info("No gate detected.")
-            return
-
-        # Center of bounding box (normalized [0,1])
-        x = gate_box.x
-        y = gate_box.y
+        # --- Gate detected: extract normalized values ---
+        x = gate_box.x  # [0,1], center position of gate in image (horizontal)
+        y = gate_box.y  # [0,1], vertical center (we don’t use this since depth is constant)
         w = gate_box.w
         h = gate_box.h
 
-        # Compute errors relative to image center (0.5, 0.5)
-        error_x = x - 0.5   # >0 → gate is to the right
-        error_y = y - 0.5   # >0 → gate is below
+        # --- Compute horizontal error relative to image center ---
+        error_z = x - 0.5   # >0 → gate is right, <0 → gate is left
 
-        # Simple proportional controller
-        k_y = 0.5   # gain for horizontal correction
-        k_z = 0.5   # gain for vertical correction
-        forward_speed = 0.3  # constant forward motion (m/s)
+        # --- Simple proportional controller for left-right alignment ---
+        k_z = 0.3           # tuning gain for sideways correction
+        forward_speed = 0.3 # constant forward motion (m/s)
 
-        linear_y = -k_y * error_x   # negative: if gate is right, move right
-        linear_z = -k_z * error_y   # negative: if gate is below, move down
+        linear_z = -k_z * error_z   # move left/right to center gate
 
-        # Optional stopping condition: if gate is big enough in frame
+        # --- Stopping condition: if gate fills enough of the view ---
         if w > 0.5 and h > 0.5:
-            self.get_logger().info("Gate reached (large in view), stopping.")
-            self.stop_movement()
+            self.get_logger().info("Gate is close (large in view). Stopping movement.")
+            self.move_forward(speed=0.3)
             return
 
-        # Publish velocity command
+        # --- Publish movement command: forward + sideways correction ---
         self.publish_velocity_command(
-            linear_x=forward_speed,  # always move forward
-            linear_y=linear_y,
-            linear_z=linear_z
+            linear_x=forward_speed,
+            linear_z=linear_z,
+            linear_y=0.0   # keep depth fixed
         )
 
         self.get_logger().info(
             f"Gate detected at (x={x:.2f}, y={y:.2f}), size=({w:.2f},{h:.2f}), "
-            f"errors: (ex={error_x:.2f}, ey={error_y:.2f}), "
-            f"cmd: fwd={forward_speed:.2f}, y={linear_y:.2f}, z={linear_z:.2f}"
+            f"error_x={error_z:.2f}, cmd: fwd={forward_speed:.2f}, y={linear_z:.2f}"
         )
+
+
+    # def callback_bounding_boxes(self, msg: BoundingBoxArray):
+    #     if not self.depth_target_achieved:
+    #         return
+
+    #     # Modified: rotate only if NO gate bounding box (with sufficient confidence) exists
+    #     while not any(
+    #         getattr(box, 'label_name', '') == "gate" and getattr(box, 'conf', 0.0) > 0.5
+    #         for box in msg.bounding_boxes
+    #     ):
+    #         self.get_logger().info("No 'gate' bounding box detected. Rotating clockwise")
+    #         self.rotate_clockwise()
+    #         return
+
+    #     # At least one gate-labeled box (conf > 0.5) exists; pick first passing threshold
+    #     gate_box = None
+    #     for box in msg.bounding_boxes:
+    #         if box.label_name == "gate" and box.conf > 0.5:
+    #             gate_box = box
+    #             break
+
+    #     if gate_box is None:
+    #         # This can occur if label present but confidence filtering logic changes later
+    #         self.get_logger().info("Gate label present but no box passed confidence filter.")
+    #         return
+
+    #     # Center of bounding box (normalized [0,1])
+    #     x = gate_box.x
+    #     y = gate_box.y
+    #     w = gate_box.w
+    #     h = gate_box.h
+
+    #     # Compute errors relative to image center (0.5, 0.5)
+    #     error_x = x - 0.5   # >0 → gate is to the right
+    #     error_y = y - 0.5   # >0 → gate is below
+
+    #     # Simple proportional controller
+    #     k_y = 0.5   # gain for horizontal correction
+    #     k_z = 0.5   # gain for vertical correction
+
+
+    #     forward_speed = 0.3  # constant forward motion (m/s)
+
+    #     linear_y = -k_y * error_x   # negative: if gate is right, move right
+    #     linear_z = -k_z * error_y   # negative: if gate is below, move down
+
+
+    #     # Optional stopping condition: if gate is big enough in frame
+    #     if w > 0.5 and h > 0.5:
+    #         self.get_logger().info("Gate reached (large in view), stopping.")
+    #         self.stop_movement()
+    #         return
+
+    #     # Publish velocity command
+    #     self.publish_velocity_command(
+    #         linear_x=forward_speed,  # always move forward
+    #         linear_y=linear_y,
+    #         linear_z=linear_z
+    #     )
+
+    #     self.get_logger().info(
+    #         f"Gate detected at (x={x:.2f}, y={y:.2f}), size=({w:.2f},{h:.2f}), "
+    #         f"errors: (ex={error_x:.2f}, ey={error_y:.2f}), "
+    #         f"cmd: fwd={forward_speed:.2f}, y={linear_y:.2f}, z={linear_z:.2f}"
+    #     )
 
 
     ########################## END OF CALLBACKS ########################## 
@@ -186,6 +245,26 @@ class GateNavigatorNode(Node):
         """Stop all movement by publishing zero velocities."""
         self.publish_velocity_command(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         self.get_logger().info('Published stop command.')
+
+    def move_forward(self, speed=0.3):
+        """Move the vehicle forward at specified speed."""
+        self.publish_velocity_command(linear_x=speed)  # Positive for forward movement
+        self.get_logger().info(f'Published forward command with speed of {speed} m/s.')
+
+    def move_backward(self, speed=0.3):
+        """Move the vehicle backward at specified speed."""
+        self.publish_velocity_command(linear_x=-speed)  # Negative for backward movement
+        self.get_logger().info(f'Published backward command with speed of {speed} m/s.')
+
+    def move_left(self, speed=0.3):
+        """Move the vehicle left at specified speed."""
+        self.publish_velocity_command(linear_y=speed)  # Positive for left movement
+        self.get_logger().info(f'Published left command with speed of {speed} m/s.')
+
+    def move_right(self, speed=0.3):
+        """Move the vehicle right at specified speed."""
+        self.publish_velocity_command(linear_y=-speed)  # Negative for right movement
+        self.get_logger().info(f'Published right command with speed of {speed} m/s.')
 
     def sink(self):
         """Sink the vehicle by publishing a downward velocity command."""
