@@ -4,7 +4,7 @@ import rclpy
 from rclpy.node import Node
 from vision_msgs.msg import BoundingBoxArray 
 from std_msgs.msg import Float64 #for depth 
-from geometry_msgs.msg import Twist, PoseStamped
+from geometry_msgs.msg import Twist
 
 class GateNavigatorNode(Node):
     def __init__(self):
@@ -13,10 +13,6 @@ class GateNavigatorNode(Node):
 
         # publishers
         self.cmd_pub = self.create_publisher(Twist, '/mavros/setpoint_velocity/cmd_vel_unstamped', 10)
-        # /mavros/setpoint_position/local:
-        # Publish PoseStamped (ENU frame: x forward, y left, z up). Must stream (>2 Hz) while in OFFBOARD/GUIDED.
-        # MAVROS forwards it as a local position target; one-shot publish is ignored by FCU position controllers.
-        self.pos_pub = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local', 10)
 
         # Subscribers
         self.sub_boxes = self.create_subscription(
@@ -37,23 +33,12 @@ class GateNavigatorNode(Node):
         self.depth_target_achieved = False
         self.current_depth = None          # will be set after first rel_alt message
         self.depth_received = False
-
         self.depth_setpoint_timer = self.create_timer(0.2, self.move_to_target_depth)
 
-        # Vision
-        # FIX: do not overwrite rotate_clockwise function
-        # self.rotate_clockwise = self.create_timer(0.1, self.rotate_clockwise)
-        # Depth setpoint publisher timer (5 Hz). Required to keep OFFBOARD/position control active.
-        
-        self.rotation_timer = self.create_timer(0.1, self._rotation_tick)
+        #Variable to check if the robot has passed through the gate
         self.passed_through_the_gate = False
 
-
     ########################## CALLBACKS ##########################    
-
-    def callback_bounding_boxes(self, msg):
-        # TODO: Implement vision processing
-        pass
     
     def callback_depth(self, msg):
         # rel_alt published by MAVROS (Float64). Save it for control logic.
@@ -122,83 +107,11 @@ class GateNavigatorNode(Node):
             self.passed_through_the_gate = True
             return
 
-        # # --- Publish movement command: forward + sideways correction ---
-        # self.publish_velocity_command(
-        #     linear_x=forward_speed,
-        #     linear_y=side_correction,  # FIXED: Use linear_y for horizontal/sideways motion
-        #     linear_z=0.0  # Keep depth fixed
-        # )
-
         self.get_logger().info(
             f"Gate detected at (x={x:.2f}, y={y:.2f}), size=({w:.2f},{h:.2f}), "
             f"error_x={error_x:.2f}, cmd: fwd={forward_speed:.2f}, side={side_correction:.2f}"
         )
 
-
-    # def callback_bounding_boxes(self, msg: BoundingBoxArray):
-    #     if not self.depth_target_achieved:
-    #         return
-
-    #     # Modified: rotate only if NO gate bounding box (with sufficient confidence) exists
-    #     while not any(
-    #         getattr(box, 'label_name', '') == "gate" and getattr(box, 'conf', 0.0) > 0.5
-    #         for box in msg.bounding_boxes
-    #     ):
-    #         self.get_logger().info("No 'gate' bounding box detected. Rotating clockwise")
-    #         self.rotate_clockwise()
-    #         return
-
-    #     # At least one gate-labeled box (conf > 0.5) exists; pick first passing threshold
-    #     gate_box = None
-    #     for box in msg.bounding_boxes:
-    #         if box.label_name == "gate" and box.conf > 0.5:
-    #             gate_box = box
-    #             break
-
-    #     if gate_box is None:
-    #         # This can occur if label present but confidence filtering logic changes later
-    #         self.get_logger().info("Gate label present but no box passed confidence filter.")
-    #         return
-
-    #     # Center of bounding box (normalized [0,1])
-    #     x = gate_box.x
-    #     y = gate_box.y
-    #     w = gate_box.w
-    #     h = gate_box.h
-
-    #     # Compute errors relative to image center (0.5, 0.5)
-    #     error_x = x - 0.5   # >0 → gate is to the right
-    #     error_y = y - 0.5   # >0 → gate is below
-
-    #     # Simple proportional controller
-    #     k_y = 0.5   # gain for horizontal correction
-    #     k_z = 0.5   # gain for vertical correction
-
-
-    #     forward_speed = 0.3  # constant forward motion (m/s)
-
-    #     linear_y = -k_y * error_x   # negative: if gate is right, move right
-    #     linear_z = -k_z * error_y   # negative: if gate is below, move down
-
-
-    #     # Optional stopping condition: if gate is big enough in frame
-    #     if w > 0.5 and h > 0.5:
-    #         self.get_logger().info("Gate reached (large in view), stopping.")
-    #         self.stop_movement()
-    #         return
-
-    #     # Publish velocity command
-    #     self.publish_velocity_command(
-    #         linear_x=forward_speed,  # always move forward
-    #         linear_y=linear_y,
-    #         linear_z=linear_z
-    #     )
-
-    #     self.get_logger().info(
-    #         f"Gate detected at (x={x:.2f}, y={y:.2f}), size=({w:.2f},{h:.2f}), "
-    #         f"errors: (ex={error_x:.2f}, ey={error_y:.2f}), "
-    #         f"cmd: fwd={forward_speed:.2f}, y={linear_y:.2f}, z={linear_z:.2f}"
-    #     )
 
 
     ########################## END OF CALLBACKS ########################## 
@@ -225,13 +138,6 @@ class GateNavigatorNode(Node):
             self.sink()
             self.get_logger().info(
                 f"Sinking: current={self.current_depth:.3f} > target={self.target_depth:.3f}")
-
-    def _rotation_tick(self):
-        # call only if you actually want continuous rotation; comment out if not needed
-        # self.rotate_clockwise()
-        if not self.depth_target_achieved:
-          return  
-
     
     ########################## TO MOVE COMMANDS ##########################
     def publish_velocity_command(self, linear_x=0.0, linear_y=0.0, linear_z=0.0, 
