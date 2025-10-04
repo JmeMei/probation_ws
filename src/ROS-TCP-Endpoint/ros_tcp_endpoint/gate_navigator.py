@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 import rclpy
 from rclpy.node import Node
 from vision_msgs.msg import BoundingBoxArray 
@@ -99,7 +98,7 @@ class GateNavigatorNode(Node):
             )
 
         # --- Stopping condition: if gate fills enough of the view ---
-        if area > 0.40:
+        if area > 0.40: #if gate area is big -> the robot is close to the gate 
             self.get_logger().info("Gate is close (large in view). Stopping movement.")
             while(gate_box):
                 self.move_forward(speed=0.3)
@@ -111,8 +110,6 @@ class GateNavigatorNode(Node):
             f"Gate detected at (x={x:.2f}, y={y:.2f}), size=({w:.2f},{h:.2f}), "
             f"error_x={error_x:.2f}, cmd: fwd={forward_speed:.2f}, side={side_correction:.2f}"
         )
-
-
 
     ########################## END OF CALLBACKS ########################## 
     def move_to_target_depth(self):
@@ -181,21 +178,6 @@ class GateNavigatorNode(Node):
         """Move the vehicle forward at specified speed."""
         self.publish_velocity_command(linear_x=speed)  # Positive for forward movement
         self.get_logger().info(f'Published forward command with speed of {speed} m/s.')
-
-    def move_backward(self, speed=0.3):
-        """Move the vehicle backward at specified speed."""
-        self.publish_velocity_command(linear_x=-speed)  # Negative for backward movement
-        self.get_logger().info(f'Published backward command with speed of {speed} m/s.')
-
-    def move_left(self, speed=0.3):
-        """Move the vehicle left at specified speed."""
-        self.publish_velocity_command(linear_y=speed)  # Positive for left movement
-        self.get_logger().info(f'Published left command with speed of {speed} m/s.')
-
-    def move_right(self, speed=0.3):
-        """Move the vehicle right at specified speed."""
-        self.publish_velocity_command(linear_y=-speed)  # Negative for right movement
-        self.get_logger().info(f'Published right command with speed of {speed} m/s.')
 
     def sink(self):
         """Sink the vehicle by publishing a downward velocity command."""
