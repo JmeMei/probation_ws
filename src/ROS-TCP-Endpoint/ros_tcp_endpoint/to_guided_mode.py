@@ -7,7 +7,7 @@ class ModeClient(Node):
     
     def __init__(self):
         super().__init__('mode')
-        #self.declare_parameter('mode', 'GUIDED')
+        self.declare_parameter('mode', 'GUIDED')
         self.mode_client = self.create_client(SetMode, '/mavros/set_mode')
 
     def call_change_mode(self, mode):
@@ -16,8 +16,12 @@ class ModeClient(Node):
         
         # Set mode
         mode_req = SetMode.Request()
+
+        # GUIDED: The autopilot accepts position/velocity commands from an external source (like your ROS node)
+        # ARMED: The motors are armed and ready to spin
         mode_req.base_mode = self.MAV_MODE_GUIDED_ARMED  # Use the constant
-        mode_req.custom_mode = mode
+        mode_req.custom_mode = mode #declared parameter
+
         self.get_logger().info(f'Setting mode: {mode}')
         mode_future = self.mode_client.call_async(mode_req)
 
