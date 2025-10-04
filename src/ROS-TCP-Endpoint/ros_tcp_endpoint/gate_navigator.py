@@ -28,7 +28,7 @@ class GateNavigatorNode(Node):
         )
 
         # Depth Variables
-        self.target_depth = -1.5804749727249146 #depth is constant
+        self.target_depth = -1.5804749727249146 #depth is constant, I got the value using foxglove and echoing topic
         self.depth_target_achieved = False
         self.current_depth = None          # will be set after first rel_alt message
         self.depth_received = False
@@ -75,7 +75,7 @@ class GateNavigatorNode(Node):
         error_x = x - 0.5   # >0 → gate is right, <0 → gate is left
 
         # --- Simple proportional controller for left-right alignment ---
-        k_side = 0.3           # tuning gain for sideways correction
+        k_side = 0.1           # tuning gain for sideways correction
         forward_speed = 0.3    # constant forward motion (m/s)
 
         # Calculate sideways motion (left/right)
@@ -207,7 +207,7 @@ This gives you Z-position (height/depth) relative to home
 You're already using this in your code
 /mavros/global_position/compass_hdg - Compass heading
 
-Gives you yaw/orientation but not position
+Gives you yaw/orientation but not position, -> USELESS
 /mavros/imu/data - IMU data
 
 Provides orientation and angular velocities, not position
