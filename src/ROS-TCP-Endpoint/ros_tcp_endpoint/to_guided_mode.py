@@ -21,7 +21,17 @@ class ModeClient(Node):
         self.get_logger().info(f'Setting mode: {mode}')
         mode_future = self.mode_client.call_async(mode_req)
 
-        self.get_logger().info('Mode change request sent successfully')
+        # Wait for the response and handle it
+        rclpy.spin_until_future_complete(self, mode_future)
+
+        if mode_future.result() is not None:
+            response = mode_future.result()
+            if response.mode_sent:
+                self.get_logger().info(f'Mode change to {mode} successful!')
+            else:
+                self.get_logger().error(f'Mode change to {mode} failed!')
+        else:
+            self.get_logger().error('Service call failed')
 
 def main():
     rclpy.init()
