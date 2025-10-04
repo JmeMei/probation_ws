@@ -1,6 +1,4 @@
 <launch>
-    <node pkg="ros_tcp_endpoint" exec="default_server_endpoint" name="default_server_endpoint" output="screen"/>
-    <include file="$(find-pkg-share foxglove_bridge)/launch/foxglove_bridge_launch.xml"/>
     <node pkg="ros_tcp_endpoint" exec="to_guided_mode" name="to_guided_mode" output="screen"/>
     <node pkg="ros_tcp_endpoint" exec="gate_navigator" name="gate_navigator" output="screen"/>
 </launch>
