@@ -1,6 +1,7 @@
 # ROS-TCP-Endpoint Runtime Guide
 ## 1. Overview
 [![Watch the video](https://img.youtube.com/vi/c4qOdlP8Z78/0.jpg)](https://youtu.be/c4qOdlP8Z78)
+
 This document describes how to start the full simulation + tooling stack:
 - ROS 2 TCP endpoint server
 - Unity simulation (external executable)
