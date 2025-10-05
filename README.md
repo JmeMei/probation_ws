@@ -47,7 +47,7 @@ Flow / Logic Overview:
 6. Pass-Through Completion: After moving forward for a fixed duration (or once logic deems it passed), motion is stopped and navigation concludes.
 7. Readability Benefit: Using the small helper functions keeps the behavioral sections (depth control, search, alignment, pass-through) easy to scan and adjust without digging into low-level Twist construction.
 
-### to_guided_mode.py
+### [open to_guided_mode.py](src/ROS-TCP-Endpoint/ros_tcp_endpoint/to_guided_mode.py)
 - Purpose: Automatically switch the vehicle into GUIDED mode on startup.
 - Mechanism: Calls /mavros/set_mode (and optionally arming after readiness checks).
 - Integration: Launched inside jamie_robot.launch.xml.
