@@ -31,7 +31,7 @@ Terminal 4 (robot bringup):
 ros2 launch my_robot_bringup jamie_robot.launch.xml  
 *Note: This launch file starts `to_guided_mode.py` and `gate_navigator.py`.*
 
-## 4. Key Scripts (add your path details)
+## 4. Key Scripts 
 ### gate_navigator.py
 - Purpose: Navigate toward a detected gate using its bounding box in the camera feed.
 - Typical Inputs: /main_camera/detection/bounding_boxes (vision_msgs/BoundingBoxArray).
