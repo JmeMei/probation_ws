@@ -32,7 +32,7 @@ ros2 launch my_robot_bringup jamie_robot.launch.xml
 *Note: This launch file starts `to_guided_mode.py` and `gate_navigator.py`.*
 
 ## 4. Key Scripts 
-### gate_navigator.py
+### [open gate_navigator.py](src/ROS-TCP-Endpoint/ros_tcp_endpoint/to_guided_mode.py)
 - Purpose: Navigate toward a detected gate using its bounding box in the camera feed.
 - Typical Inputs: /main_camera/detection/bounding_boxes (vision_msgs/BoundingBoxArray).
 - Typical Output Topic: /mavros/setpoint_velocity/cmd_vel_unstamped (geometry_msgs/Twist) for velocity commands.
