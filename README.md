@@ -7,7 +7,7 @@ This document describes how to start the full simulation + tooling stack:
 - Unity simulation (external executable)
 - Foxglove bridge + Foxglove Studio
 - Robot bringup (sensors, MAVROS, navigation)
-- Custom scripts: [open gate_navigator.py](src/ROS-TCP-Endpoint/ros_tcp_endpoint/gate_navigator.py) and to_guided_mode.py
+- Custom scripts: [open gate_navigator.py](src/ROS-TCP-Endpoint/ros_tcp_endpoint/gate_navigator.py) and [open to_guided_mode.py](src/ROS-TCP-Endpoint/ros_tcp_endpoint/to_guided_mode.py)
 
 ## 2. Build & Environment Setup
 Run once per new terminal:
