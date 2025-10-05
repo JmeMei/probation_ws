@@ -36,7 +36,9 @@ class GateNavigatorNode(Node):
 
         #Variable to check if the robot has passed through the gate
         self.passed_through_the_gate = False
-
+        self.boundingbox_received = False
+        self.gate_box = None  # Initialize gate_box to None
+        self.gate_setpoint_timer = self.create_timer(0.2, self.move_to_gate)
     ########################## CALLBACKS ##########################    
     
     def callback_depth(self, msg):
@@ -44,72 +46,19 @@ class GateNavigatorNode(Node):
         self.current_depth = msg.data
         self.depth_received = True
         
+        
     def callback_gate_navigation(self, msg: BoundingBoxArray):
         if self.passed_through_the_gate:
-            return
-
-        if not self.depth_target_achieved:
-            # Don't start gate navigation until depth is stable
-            return
+            self.get_logger().info("Already passed through the gate. No further navigation.")
+            self.gate_setpoint_timer.cancel() # stop this timer
 
         # --- Search behavior: if no gate detected ---
-        gate_box = None
         for box in msg.bounding_boxes:
             if box.label_name == "gate" and box.conf > 0.5:
-                gate_box = box
+                self.gate_box = box
+                self.boundingbox_received = True
                 break
-
-        if gate_box is None:
-            self.get_logger().info("No gate detected. Rotating clockwise to search...")
-            self.rotate_clockwise()
-            return
-
-        # --- Gate detected: extract normalized values ---
-        x = gate_box.x  # [0,1], center position of gate in image (horizontal)
-        y = gate_box.y  # [0,1], vertical center (we don't use this since depth is constant)
-        w = gate_box.w
-        h = gate_box.h
-        area = w * h
-        
-        # --- Compute horizontal error relative to image center ---
-        error_x = x - 0.5   # >0 → gate is right, <0 → gate is left
-
-        # --- Simple proportional controller for left-right alignment ---
-        k_side = 0.1           # tuning gain for sideways correction
-        forward_speed = 0.3    # constant forward motion (m/s)
-
-        # Calculate sideways motion (left/right)
-        # If gate is to right (error_x > 0), need to move left (positive y in ENU)
-        # If gate is to left (error_x < 0), need to move right (negative y in ENU)
-        side_correction = -k_side * error_x
-        if(error_x > 0): 
-            self.publish_velocity_command(
-                linear_x=forward_speed,
-                # linear_y=1.0,  # FIXED: Use linear_y for horizontal/sideways motion
-                angular_z = -0.5,
-                linear_z=0.0  # Keep depth fixed
-            )
-        else:
-            self.publish_velocity_command(
-                linear_x=forward_speed,
-                # linear_y=-1.0,  # FIXED: Use linear_y for horizontal/sideways motion
-                angular_z = 0.5,
-                linear_z=0.0  # Keep depth fixed
-            )
-
-        # --- Stopping condition: if gate fills enough of the view ---
-        if area > 0.40: #if gate area is big -> the robot is close to the gate 
-            self.get_logger().info("Gate is close (large in view). Stopping movement.")
-            while(gate_box):
-                self.move_forward(speed=0.3)
-            self.stop_movement()
-            self.passed_through_the_gate = True
-            return
-
-        self.get_logger().info(
-            f"Gate detected at (x={x:.2f}, y={y:.2f}), size=({w:.2f},{h:.2f}), "
-            f"error_x={error_x:.2f}, cmd: fwd={forward_speed:.2f}, side={side_correction:.2f}"
-        )
+            
 
     ########################## END OF CALLBACKS ########################## 
     def move_to_target_depth(self):
@@ -136,6 +85,63 @@ class GateNavigatorNode(Node):
             self.get_logger().info(
                 f"Sinking: current={self.current_depth:.3f} > target={self.target_depth:.3f}")
     
+    def move_to_gate(self):
+        if not self.depth_target_achieved: # Don't start gate navigation until depth is stable
+            return
+
+        if not self.boundingbox_received:
+            self.get_logger().info("No gate detected. Rotating clockwise to search...")
+            self.rotate_clockwise()
+            return
+
+        # --- Gate detected: extract normalized values ---
+        x = self.gate_box.x  # [0,1], center position of gate in image (horizontal)
+        y = self.gate_box.y  # [0,1], vertical center (we don't use this since depth is constant)
+        w = self.gate_box.w
+        h = self.gate_box.h
+        area = w * h
+        
+        # --- Compute horizontal error relative to image center ---
+        error_x = x - 0.5   # >0 → gate is right, <0 → gate is left
+
+        # --- Simple proportional controller for left-right alignment ---
+        # k_side = 0.1           # tuning gain for sideways correction
+        forward_speed = 0.3    # constant forward motion (m/s)
+
+        # Calculate sideways motion (left/right)
+        # If gate is to right (error_x > 0), need to move left (positive y in ENU)
+        # If gate is to left (error_x < 0), need to move right (negative y in ENU)
+        # side_correction = -k_side * error_x
+        if(error_x > 0): 
+            self.publish_velocity_command(
+                linear_x=forward_speed,
+                # linear_y=1.0,  # FIXED: Use linear_y for horizontal/sideways motion
+                angular_z = -0.3,
+                linear_z=0.0  # Keep depth fixed
+            )
+        else:
+            self.publish_velocity_command(
+                linear_x=forward_speed,
+                # linear_y=-1.0,  # FIXED: Use linear_y for horizontal/sideways motion
+                angular_z = 0.3,
+                linear_z=0.0  # Keep depth fixed
+            )
+
+        # --- Stopping condition: if gate fills enough of the view ---
+        if area > 0.40: #if gate area is big -> the robot is close to the gate 
+            self.get_logger().info("Gate is close (large in view). Stopping movement.")
+            while(self.boundingbox_received == True):
+                self.move_forward(speed=0.3)
+            self.stop_movement()
+            self.passed_through_the_gate = True
+            return
+
+        self.get_logger().info(
+            f"Gate detected at (x={x:.2f}, y={y:.2f}), size=({w:.2f},{h:.2f}), "
+            # f"error_x={error_x:.2f}, cmd: fwd={forward_speed:.2f}, side={side_correction:.2f}"
+        )
+
+
     ########################## TO MOVE COMMANDS ##########################
     def publish_velocity_command(self, linear_x=0.0, linear_y=0.0, linear_z=0.0, 
                                 angular_x=0.0, angular_y=0.0, angular_z=0.0):
